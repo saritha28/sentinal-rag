@@ -1,0 +1,102 @@
+{
+  "realm": "sentinelrag",
+  "enabled": true,
+  "displayName": "SentinelRAG",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "attributes": {
+    "frontendUrl": "http://localhost:8080"
+  },
+  "roles": {
+    "realm": [
+      { "name": "platform-admin", "description": "SentinelRAG platform administrator" },
+      { "name": "tenant-admin", "description": "Administrator within a single tenant" },
+      { "name": "tenant-user", "description": "Regular user within a single tenant" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sentinelrag-api",
+      "name": "SentinelRAG API",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-only-api-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "access.token.lifespan": "900"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "sentinelrag-frontend",
+      "name": "SentinelRAG Frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "protocol": "openid-connect",
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "demo-admin",
+      "email": "demo-admin@sentinelrag.local",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "credentials": [
+        { "type": "password", "value": "demo", "temporary": false }
+      ],
+      "realmRoles": ["tenant-admin"],
+      "attributes": {
+        "tenant_id": ["00000000-0000-0000-0000-000000000001"]
+      }
+    },
+    {
+      "username": "demo-user",
+      "email": "demo-user@sentinelrag.local",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "User",
+      "credentials": [
+        { "type": "password", "value": "demo", "temporary": false }
+      ],
+      "realmRoles": ["tenant-user"],
+      "attributes": {
+        "tenant_id": ["00000000-0000-0000-0000-000000000001"]
+      }
+    }
+  ]
+}

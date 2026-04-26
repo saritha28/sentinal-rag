@@ -1,0 +1,35 @@
+"""Stable error codes used in API responses.
+
+Codes are part of the public API contract — never rename, only add. Mirrors
+Enterprise_RAG_Database_Design.md §24 plus a few additions for v1 needs.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class ErrorCode(StrEnum):
+    AUTH_REQUIRED = "AUTH_REQUIRED"
+    AUTH_INVALID = "AUTH_INVALID"
+    RBAC_DENIED = "RBAC_DENIED"
+
+    TENANT_NOT_FOUND = "TENANT_NOT_FOUND"
+    USER_NOT_FOUND = "USER_NOT_FOUND"
+    ROLE_NOT_FOUND = "ROLE_NOT_FOUND"
+    DOCUMENT_NOT_FOUND = "DOCUMENT_NOT_FOUND"
+    COLLECTION_NOT_FOUND = "COLLECTION_NOT_FOUND"
+    PROMPT_NOT_FOUND = "PROMPT_NOT_FOUND"
+
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    CONFLICT = "CONFLICT"
+
+    INGESTION_FAILED = "INGESTION_FAILED"
+    RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
+    GENERATION_FAILED = "GENERATION_FAILED"
+    EVALUATION_FAILED = "EVALUATION_FAILED"
+
+    RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+
+    INTERNAL_ERROR = "INTERNAL_ERROR"

@@ -1,0 +1,33 @@
+[project]
+name = "sentinelrag-api"
+version = "0.1.0"
+description = "SentinelRAG API gateway / orchestrator service."
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "redis>=5.2",
+    "httpx>=0.27",
+    "python-multipart>=0.0.18",
+    "python-jose[cryptography]>=3.3",
+    "structlog>=24.4",
+    "temporalio>=1.8",
+    "sentinelrag-shared",
+]
+
+[tool.uv.sources]
+sentinelrag-shared = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

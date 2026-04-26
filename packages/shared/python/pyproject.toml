@@ -1,0 +1,36 @@
+[project]
+name = "sentinelrag-shared"
+version = "0.1.0"
+description = "Shared Python packages used across SentinelRAG services (logging, telemetry, auth, contracts, errors)."
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "structlog>=24.4",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp>=1.27",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-httpx>=0.48b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.48b0",
+    "opentelemetry-instrumentation-asyncpg>=0.48b0",
+    "opentelemetry-instrumentation-logging>=0.48b0",
+    "litellm>=1.51",
+    "httpx>=0.27",
+    "tenacity>=9.0",
+    "boto3>=1.35",
+    "google-cloud-storage>=2.18",
+    "azure-storage-blob>=12.23",
+    "minio>=7.2",
+    "UnleashClient>=6.0",
+    "python-jose[cryptography]>=3.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sentinelrag_shared"]

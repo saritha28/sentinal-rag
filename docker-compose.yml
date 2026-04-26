@@ -1,0 +1,284 @@
+# SentinelRAG local development stack.
+# Usage:
+#   make up      # bring everything online
+#   make down    # stop (preserves volumes)
+#   make clean   # stop + delete volumes
+#
+# Services are intentionally exposed on host ports so app code running outside
+# Docker (e.g. `make api`) can reach them. Production parity is enforced via
+# Helm chart values — not here.
+
+name: sentinelrag
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ---- Postgres + pgvector ----
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel
+      POSTGRES_DB: sentinelrag
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinelrag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  # ---- Keycloak's own DB (kept separate from app DB) ----
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  # ---- Redis ----
+  # Host port 6380 → container port 6379 to avoid conflicts with native
+  # Redis/Memurai installs commonly listening on 6379. Inside the Docker
+  # network, services still talk to redis on its container port (6379).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+
+  # ---- MinIO (S3-compatible local) ----
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # console UI
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # Create initial buckets on startup.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb -p local/sentinelrag-documents || true;
+      mc mb -p local/sentinelrag-audit || true;
+      mc anonymous set none local/sentinelrag-documents;
+      mc anonymous set none local/sentinelrag-audit;
+      exit 0;
+      "
+    restart: "no"
+    logging: *default-logging
+
+  # ---- Keycloak (OAuth2 / OIDC) ----
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./scripts/local/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  # ---- Temporal (durable workflows) ----
+  temporal:
+    image: temporalio/auto-setup:1.25
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: sentinel
+      POSTGRES_PWD: sentinel
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  temporal-ui:
+    image: temporalio/ui:2.32.0
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: "http://localhost:3000"
+    ports:
+      - "8233:8080"
+    depends_on:
+      - temporal
+    logging: *default-logging
+
+  # ---- Ollama (local LLM serving) ----
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Set OLLAMA_KEEP_ALIVE so models stay in memory across requests.
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+    logging: *default-logging
+
+  # ---- Unleash (feature flags) ----
+  unleash-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: unleash
+      POSTGRES_PASSWORD: unleash
+      POSTGRES_DB: unleash
+    volumes:
+      - unleash_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unleash -d unleash"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  unleash:
+    image: unleashorg/unleash-server:6
+    restart: unless-stopped
+    environment:
+      DATABASE_HOST: unleash-db
+      DATABASE_NAME: unleash
+      DATABASE_USERNAME: unleash
+      DATABASE_PASSWORD: unleash
+      DATABASE_SSL: "false"
+      INIT_ADMIN_API_TOKENS: "default:development.unleash-insecure-api-token"
+    ports:
+      - "4242:4242"
+    depends_on:
+      unleash-db:
+        condition: service_healthy
+    logging: *default-logging
+
+  # ---- Observability: OTel collector → Jaeger (traces) + Prometheus (metrics) ----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.113.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./scripts/local/observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - jaeger
+      - prometheus
+    logging: *default-logging
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./scripts/local/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./scripts/local/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    depends_on:
+      - prometheus
+      - jaeger
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  keycloak_db_data:
+  redis_data:
+  minio_data:
+  ollama_data:
+  unleash_db_data:
+  prometheus_data:
+  grafana_data:

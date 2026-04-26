@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs on the same PR/branch when a new commit is pushed.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  python-quality:
+    name: Python lint + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.x"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install workspace (all members in editable mode)
+        run: uv sync --all-packages --all-extras
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format check
+        run: uv run ruff format --check .
+
+      - name: pyright
+        run: uv run pyright
+
+  python-tests:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.x"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install workspace (all members in editable mode)
+        run: uv sync --all-packages --all-extras
+
+      - name: Run unit tests
+        run: uv run pytest -m unit --cov --cov-report=xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  python-integration:
+    name: Python integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Integration tests use testcontainers which needs Docker.
+    services:
+      docker:
+        image: docker:dind
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.x"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install workspace (all members in editable mode)
+        run: uv sync --all-packages --all-extras
+
+      - name: Run integration tests
+        run: uv run pytest -m integration
+
+  helm-lint:
+    name: Helm chart lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: hashFiles('infra/helm/sentinelrag/Chart.yaml') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint infra/helm/sentinelrag
+
+  terraform-fmt:
+    name: Terraform fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: hashFiles('infra/terraform/**/*.tf') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: terraform fmt
+        run: terraform fmt -check -recursive infra/terraform
+
+  detect-secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
