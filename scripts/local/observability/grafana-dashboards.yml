@@ -1,0 +1,17 @@
+apiVersion: 1
+
+# Grafana dashboard provisioner — points at the JSON files committed under
+# infra/observability/grafana/dashboards/. Mount that directory into the
+# Grafana container at /var/lib/grafana/dashboards (see docker-compose.yml).
+
+providers:
+  - name: SentinelRAG
+    orgId: 1
+    folder: SentinelRAG
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

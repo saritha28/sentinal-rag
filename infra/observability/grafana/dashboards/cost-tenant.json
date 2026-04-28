@@ -1,0 +1,104 @@
+{
+  "title": "SentinelRAG — Cost & Budgets",
+  "uid": "sentinelrag-cost",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["sentinelrag", "cost", "finops"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "LLM cost USD / hour by provider",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (provider) (rate(sentinelrag_llm_cost_usd_total[1m])) * 3600",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "Cumulative spend (window)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(sentinelrag_llm_cost_usd_total[$__range]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 }
+    },
+    {
+      "id": 3,
+      "title": "Budget gate decisions / minute",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (action) (rate(sentinelrag_budget_decisions_total[1m])) * 60",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 8 }
+    },
+    {
+      "id": 4,
+      "title": "Denials (1h)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(sentinelrag_budget_decisions_total{action=\"deny\"}[1h]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 }
+    },
+    {
+      "id": 5,
+      "title": "Downgrades (1h)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(sentinelrag_budget_decisions_total{action=\"downgrade\"}[1h]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 }
+    }
+  ]
+}
