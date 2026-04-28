@@ -92,6 +92,12 @@ These are enforced design rules. Violating them in a PR is a blocker:
 - **Sensitive defaults:** `text-embedding-3-small` produces 1536-dim vectors; `nomic-embed-text` produces 768-dim. The `chunk_embeddings` table has `embedding_model TEXT` + per-model rows precisely so we can run both. **Do not change the column to a fixed dim.**
 - **Multi-cloud parity:** Helm chart is the single deployment artifact. Terraform differs per cloud, but the K8s manifests must be identical AWS↔GCP. If you find yourself writing cloud-specific K8s, it belongs in a Helm value override, not a fork.
 
+## Local dev: skipping Keycloak
+
+For local smoke tests + integration tests we ship a **dev-token bypass** in `app/core/auth.py`. It's gated by **two** flags that must both be set: `ENVIRONMENT=local` AND `AUTH_ALLOW_DEV_TOKEN=true`. Both default to `False` outside `.env`. With them enabled, calling any authenticated route with `Authorization: Bearer dev` returns a synthesized AuthContext for the seeded demo tenant + admin user (provisioned by `make seed`).
+
+This is the path used by integration tests and the local upload smoke test. **Never enable in dev/staging/prod** — Pydantic settings + the `environment != local` guard make this hard to do by accident, but the rule is tested in `tests/unit/test_dev_token_disabled_in_prod.py`.
+
 ## Common commands (will exist after Phase 0)
 
 ```bash

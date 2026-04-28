@@ -33,3 +33,6 @@ This directory holds the architectural decisions for SentinelRAG. We use the [MA
 | [0017](0017-frontend-nextjs-app-router.md) | Next.js 15 App Router for frontend | Accepted |
 | [0018](0018-feature-flags-unleash.md) | Unleash self-hosted for feature flags | Accepted |
 | [0019](0019-evaluation-framework-ragas.md) | `ragas` + custom evaluators for evaluation | Accepted |
+| [0020](0020-multi-dim-embeddings.md) | Multi-dimension embeddings via per-dimension columns | Accepted |
+| [0021](0021-retrieval-embedded-v1.md) | Retrieval embedded in-process for v1; extract in Phase 7 | Accepted |
+| [0022](0022-cost-budgets-soft-hard-caps.md) | Per-tenant cost budgets with soft / hard caps | Accepted |
