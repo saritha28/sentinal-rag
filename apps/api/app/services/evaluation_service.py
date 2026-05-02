@@ -131,6 +131,7 @@ class EvaluationService:
                     "evaluation_run_id": str(run.id),
                     "tenant_id": str(tenant_id),
                     "dataset_id": str(payload.dataset_id),
+                    "actor_user_id": str(created_by) if created_by else None,
                     "collection_ids": [str(c) for c in payload.collection_ids],
                     "prompt_version_id": str(payload.prompt_version_id)
                     if payload.prompt_version_id
@@ -145,6 +146,9 @@ class EvaluationService:
             await self.db.flush()
 
         return run
+
+    async def list_runs(self, *, limit: int = 50, offset: int = 0) -> list[EvaluationRun]:
+        return await self.runs.list_recent(limit=limit, offset=offset)
 
     async def get_run(self, run_id: UUID) -> EvaluationRun:
         run = await self.runs.get(run_id)

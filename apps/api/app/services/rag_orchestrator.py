@@ -50,6 +50,7 @@ from sentinelrag_shared.llm import (
 from sentinelrag_shared.retrieval import (
     AccessFilter,
     Candidate,
+    HybridRetrievalResult,
     HybridRetriever,
     PgvectorVectorSearch,
     PostgresFtsKeywordSearch,
@@ -204,14 +205,43 @@ class RagOrchestrator:
 
         try:
             # 2-3. Retrieve + persist stage results.
-            hybrid_result = await hybrid.retrieve(
-                query=query,
-                auth=auth,
-                collection_ids=collection_ids,
-                top_k_bm25=retrieval.top_k_bm25,
-                top_k_vector=retrieval.top_k_vector,
-                top_k_hybrid=retrieval.top_k_hybrid,
-            )
+            if retrieval.mode == "bm25":
+                bm25 = await keyword_search.search(
+                    query=query,
+                    auth=auth,
+                    collection_ids=collection_ids,
+                    top_k=retrieval.top_k_bm25,
+                )
+                hybrid_result = HybridRetrievalResult(
+                    bm25_candidates=bm25,
+                    vector_candidates=[],
+                    merged_candidates=self._as_stage(
+                        bm25[: retrieval.top_k_hybrid], RetrievalStage.HYBRID_MERGE
+                    ),
+                )
+            elif retrieval.mode == "vector":
+                vector = await vector_search.search(
+                    query=query,
+                    auth=auth,
+                    collection_ids=collection_ids,
+                    top_k=retrieval.top_k_vector,
+                )
+                hybrid_result = HybridRetrievalResult(
+                    bm25_candidates=[],
+                    vector_candidates=vector,
+                    merged_candidates=self._as_stage(
+                        vector[: retrieval.top_k_hybrid], RetrievalStage.HYBRID_MERGE
+                    ),
+                )
+            else:
+                hybrid_result = await hybrid.retrieve(
+                    query=query,
+                    auth=auth,
+                    collection_ids=collection_ids,
+                    top_k_bm25=retrieval.top_k_bm25,
+                    top_k_vector=retrieval.top_k_vector,
+                    top_k_hybrid=retrieval.top_k_hybrid,
+                )
             await self._persist_candidates(
                 query_session_id, auth.tenant_id, hybrid_result.bm25_candidates
             )
@@ -499,6 +529,21 @@ class RagOrchestrator:
     ) -> list[Candidate]:
         if not merged:
             return []
+        if top_k <= 0:
+            return [
+                Candidate(
+                    chunk_id=c.chunk_id,
+                    document_id=c.document_id,
+                    content=c.content,
+                    score=c.score,
+                    rank=rank,
+                    stage=RetrievalStage.RERANK,
+                    page_number=c.page_number,
+                    section_title=c.section_title,
+                    metadata={**c.metadata, "rerank_disabled": True},
+                )
+                for rank, c in enumerate(merged, start=1)
+            ]
         rerank_inputs = [
             RerankCandidate(chunk_id=str(c.chunk_id), text=c.content) for c in merged
         ]
@@ -542,6 +587,24 @@ class RagOrchestrator:
                 )
             )
         return out
+
+    def _as_stage(
+        self, candidates: list[Candidate], stage: RetrievalStage
+    ) -> list[Candidate]:
+        return [
+            Candidate(
+                chunk_id=c.chunk_id,
+                document_id=c.document_id,
+                content=c.content,
+                score=c.score,
+                rank=rank,
+                stage=stage,
+                page_number=c.page_number,
+                section_title=c.section_title,
+                metadata=c.metadata,
+            )
+            for rank, c in enumerate(candidates, start=1)
+        ]
 
     @staticmethod
     def _assemble_context(

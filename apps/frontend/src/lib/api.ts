@@ -192,8 +192,7 @@ export const api = {
     request<PromptVersion[]>('GET', `/prompts/${template_id}/versions`, { token }),
 
   // Evaluation
-  listEvalRuns: (token?: string) =>
-    request<EvaluationRun[]>('GET', '/eval/runs', { token }).catch(() => [] as EvaluationRun[]),
+  listEvalRuns: (token?: string) => request<EvaluationRun[]>('GET', '/eval/runs', { token }),
   getEvalRun: (run_id: string, token?: string) =>
     request<EvaluationRunResults>('GET', `/eval/runs/${run_id}`, { token }),
   listEvalCases: (dataset_id: string, token?: string) =>

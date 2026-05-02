@@ -121,4 +121,17 @@ describe('api client', () => {
     expect(fd.get('title')).toBe('X');
     expect(fd.get('file')).toBeInstanceOf(File);
   });
+
+  it('does not hide evaluation run list errors', async () => {
+    globalThis.fetch = mockFetch({
+      status: 503,
+      body: { error: { code: 'service_unavailable', message: 'eval API unavailable' } },
+    }) as typeof fetch;
+
+    await expect(api.listEvalRuns('t')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 503,
+      code: 'service_unavailable',
+    });
+  });
 });

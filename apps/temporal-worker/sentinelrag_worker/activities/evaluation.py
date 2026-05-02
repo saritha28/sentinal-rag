@@ -13,7 +13,7 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sentinelrag_shared.evaluation import (
     AnswerCorrectnessEvaluator,
@@ -24,6 +24,7 @@ from sentinelrag_shared.evaluation import (
     Evaluator,
     FaithfulnessEvaluator,
 )
+from sentinelrag_shared.llm import BgeReranker, NoOpReranker, Reranker, RerankerError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -68,6 +69,17 @@ def _as_uuid(v: str | UUID) -> UUID:
     return v if isinstance(v, UUID) else UUID(v)
 
 
+def _build_reranker() -> Reranker:
+    if os.environ.get("ENABLE_RERANKER", "false").lower() not in {"1", "true", "yes"}:
+        return NoOpReranker()
+    try:
+        return BgeReranker(
+            model_name=os.environ.get("DEFAULT_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+        )
+    except RerankerError:
+        return NoOpReranker()
+
+
 _ALL_EVALUATORS: list[Evaluator] = [
     ContextRelevanceEvaluator(),
     FaithfulnessEvaluator(),
@@ -79,13 +91,16 @@ _ALL_EVALUATORS: list[Evaluator] = [
 @activity.defn
 async def mark_run_running(run_id: str, tenant_id: str) -> None:
     async with _session_for_tenant(_as_uuid(tenant_id)) as session:
-        await session.execute(
+        result = await session.execute(
             text(
                 "UPDATE evaluation_runs SET status='running', started_at=now() "
                 "WHERE id=:id"
             ),
             {"id": str(_as_uuid(run_id))},
         )
+        if result.rowcount != 1:
+            msg = f"Evaluation run {run_id} was not visible for tenant {tenant_id}."
+            raise RuntimeError(msg)
 
 
 @activity.defn
@@ -108,6 +123,7 @@ async def score_case(
     run_id: str,
     case_id: str,
     tenant_id: str,
+    actor_user_id: str | None,
     collection_ids: list[str],
     prompt_version_id: str | None,
     model_config: dict[str, Any],
@@ -147,29 +163,43 @@ async def score_case(
         if case_row is None:
             return {"skipped": True, "reason": "case-not-found"}
 
-        # Use a system-level "evaluation" auth context. Per ADR-0008 the
-        # eval framework runs with platform-level permissions. We grant
-        # the run's tenant + a synthetic user ID for audit purposes.
-        eval_user_id = uuid4()
-        # Ensure a user row exists for the FK on query_sessions; we create
-        # an ephemeral evaluator user with email scoped to the run.
-        await session.execute(
-            text(
-                "INSERT INTO users (id, tenant_id, email) "
-                "VALUES (:uid, :tid, :email) "
-                "ON CONFLICT (tenant_id, email) DO NOTHING"
-            ),
-            {
-                "uid": str(eval_user_id),
-                "tid": str(tid),
-                "email": f"evaluator+{rid}@sentinelrag.example.com",
-            },
-        )
+        if actor_user_id:
+            eval_user_id = _as_uuid(actor_user_id)
+            email_row = (
+                await session.execute(
+                    text("SELECT email FROM users WHERE id=:uid"),
+                    {"uid": str(eval_user_id)},
+                )
+            ).fetchone()
+            if email_row is None:
+                msg = f"Evaluation actor user {actor_user_id} not found."
+                raise RuntimeError(msg)
+            eval_email = str(email_row.email)
+        else:
+            eval_email = f"evaluator+{rid}@sentinelrag.example.com"
+            proposed_user_id = uuid5(NAMESPACE_URL, f"sentinelrag:evaluator:{rid}")
+            user_row = (
+                await session.execute(
+                    text(
+                        "INSERT INTO users (id, tenant_id, email) "
+                        "VALUES (:uid, :tid, :email) "
+                        "ON CONFLICT (tenant_id, email) DO UPDATE "
+                        "SET email = EXCLUDED.email "
+                        "RETURNING id"
+                    ),
+                    {
+                        "uid": str(proposed_user_id),
+                        "tid": str(tid),
+                        "email": eval_email,
+                    },
+                )
+            ).fetchone()
+            eval_user_id = _as_uuid(user_row.id)
 
         auth = AuthContext(
             user_id=eval_user_id,
             tenant_id=tid,
-            email=f"evaluator+{rid}@sentinelrag.example.com",
+            email=eval_email,
             permissions=frozenset(
                 {"queries:execute", "documents:read", "collections:read"}
             ),
@@ -186,6 +216,7 @@ async def score_case(
             ollama_base_url=os.environ.get(
                 "OLLAMA_BASE_URL", "http://localhost:11434"
             ),
+            reranker=_build_reranker(),
         )
 
         result = await orchestrator.run(
@@ -287,13 +318,16 @@ async def score_case(
 @activity.defn
 async def finalize_run(run_id: str, tenant_id: str, status: str = "completed") -> None:
     async with _session_for_tenant(_as_uuid(tenant_id)) as session:
-        await session.execute(
+        result = await session.execute(
             text(
                 "UPDATE evaluation_runs "
                 "SET status=:status, completed_at=now() WHERE id=:id"
             ),
             {"id": str(_as_uuid(run_id)), "status": status},
         )
+        if result.rowcount != 1:
+            msg = f"Evaluation run {run_id} was not visible for tenant {tenant_id}."
+            raise RuntimeError(msg)
 
 
 ALL_ACTIVITIES = [mark_run_running, list_case_ids, score_case, finalize_run]

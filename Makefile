@@ -66,7 +66,7 @@ ingestion: ## Run apps/ingestion-service with hot reload
 	uv run --package sentinelrag-ingestion-service uvicorn app.main:app --reload --host 0.0.0.0 --port 8030
 
 evaluation: ## Run apps/evaluation-service with hot reload
-	uv run --package sentinelrag-evaluation-service uvicorn app.main:app --reload --host 0.0.0.0 --port 8040
+	uv run --package sentinelrag-evaluation-service uvicorn sentinelrag_evaluation_service.main:app --reload --host 0.0.0.0 --port 8040
 
 worker: ## Run Temporal worker
 	uv run --package sentinelrag-temporal-worker python -m sentinelrag_worker.main

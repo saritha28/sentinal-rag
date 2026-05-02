@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sentinelrag_shared.auth import AuthContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -98,6 +98,18 @@ async def start_run(
         tenant_id=ctx.tenant_id, created_by=ctx.user_id, payload=payload
     )
     return EvaluationRunRead.model_validate(run)
+
+
+@router.get("/runs", response_model=list[EvaluationRunRead])
+async def list_runs(
+    _ctx: Annotated[AuthContext, Depends(require_permission("evals:run"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[EvaluationRunRead]:
+    service = EvaluationService(db)
+    runs = await service.list_runs(limit=limit, offset=offset)
+    return [EvaluationRunRead.model_validate(run) for run in runs]
 
 
 @router.get("/runs/{run_id}", response_model=EvaluationRunResults)

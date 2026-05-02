@@ -54,6 +54,7 @@ class EvaluationRunWorkflow:
         )
 
         cases_completed = 0
+        cases_failed = 0
         for case_id in case_ids:
             try:
                 await workflow.execute_activity(
@@ -62,6 +63,9 @@ class EvaluationRunWorkflow:
                         "run_id": str(payload.evaluation_run_id),
                         "case_id": case_id,
                         "tenant_id": str(payload.tenant_id),
+                        "actor_user_id": str(payload.actor_user_id)
+                        if payload.actor_user_id
+                        else None,
                         "collection_ids": [str(c) for c in payload.collection_ids],
                         "prompt_version_id": str(payload.prompt_version_id)
                         if payload.prompt_version_id
@@ -73,15 +77,13 @@ class EvaluationRunWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
                 cases_completed += 1
-            except Exception:  # noqa: S110
-                # One bad case doesn't fail the whole run; downstream UI
-                # surfaces missing scores. Phase 6 adds explicit per-case
-                # failure tracking.
-                pass
+            except Exception:
+                cases_failed += 1
 
+        final_status = "failed" if cases_failed else "completed"
         await workflow.execute_activity(
             activities.finalize_run,
-            args=[str(payload.evaluation_run_id), str(payload.tenant_id), "completed"],
+            args=[str(payload.evaluation_run_id), str(payload.tenant_id), final_status],
             start_to_close_timeout=timedelta(seconds=15),
             retry_policy=_RETRY,
         )
@@ -89,5 +91,6 @@ class EvaluationRunWorkflow:
         result = EvaluationRunWorkflowResult(
             evaluation_run_id=payload.evaluation_run_id,
             cases_completed=cases_completed,
+            cases_failed=cases_failed,
         )
         return result.model_dump(mode="json")

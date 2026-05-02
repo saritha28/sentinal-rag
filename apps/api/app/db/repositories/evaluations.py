@@ -47,6 +47,16 @@ class EvaluationCaseRepository(BaseRepository[EvaluationCase]):
 class EvaluationRunRepository(BaseRepository[EvaluationRun]):
     model = EvaluationRun
 
+    async def list_recent(self, *, limit: int = 50, offset: int = 0) -> list[EvaluationRun]:
+        stmt = (
+            select(EvaluationRun)
+            .order_by(EvaluationRun.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
 
 class EvaluationScoreRepository(BaseRepository[EvaluationScore]):
     model = EvaluationScore
