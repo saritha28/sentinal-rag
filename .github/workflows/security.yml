@@ -52,7 +52,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install bandit
-        run: pip install "bandit[sarif]==1.7.10" "toml>=0.10.2" "toml>=0.10.2"
+        run: pip install "bandit[sarif]==1.7.10" "toml>=0.10.2" "toml>=0.10.2" "toml>=0.10.2"
 
       - name: Run bandit
         run: |
